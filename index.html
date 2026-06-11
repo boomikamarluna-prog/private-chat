@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Private Chat</title>
+
+  <!-- PWA / mobile app -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Private Chat" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --me: #2f6fed;
+      --them: #2a2f3a;
+      --text: #e6e8ec;
+      --muted: #8a909c;
+      --accent: #2f6fed;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;      /* fallback */
+      height: 100dvh;     /* shrinks correctly when the mobile keyboard opens */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .app {
+      width: 100%;
+      max-width: 640px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      /* respect notches / rounded corners on phones */
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+
+    /* ---- Name gate ---- */
+    .gate {
+      margin: auto;
+      background: var(--panel);
+      padding: 28px;
+      border-radius: 14px;
+      width: min(90%, 360px);
+      box-shadow: 0 10px 40px rgba(0,0,0,.4);
+    }
+    .gate h1 { margin: 0 0 4px; font-size: 20px; }
+    .gate p { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+    .gate label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+    .gate input {
+      width: 100%; padding: 11px 13px; border-radius: 9px; border: 1px solid #2a2f3a;
+      background: #0f1115; color: var(--text); font-size: 16px; /* >=16px stops iOS auto-zoom */
+    }
+    .gate button {
+      margin-top: 22px; width: 100%; padding: 12px; border: none; border-radius: 9px;
+      background: var(--accent); color: white; font-size: 15px; font-weight: 600; cursor: pointer;
+    }
+    .gate button:hover { filter: brightness(1.1); }
+    .err { color: #ff6b6b; font-size: 13px; margin-top: 12px; min-height: 16px; }
+
+    /* ---- Chat ---- */
+    header {
+      padding: 14px 18px; background: var(--panel); border-bottom: 1px solid #21262f;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    header .who { font-weight: 600; }
+    header .sub { color: var(--muted); font-size: 13px; }
+    header button {
+      background: none; border: 1px solid #2a2f3a; color: var(--muted);
+      padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    }
+    #messages {
+      flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .msg { max-width: 75%; padding: 9px 13px; border-radius: 14px; line-height: 1.35; word-wrap: break-word; }
+    .msg .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .msg.me { align-self: flex-end; background: var(--me); border-bottom-right-radius: 4px; }
+    .msg.them { align-self: flex-start; background: var(--them); border-bottom-left-radius: 4px; }
+    .composer {
+      display: flex; gap: 10px; padding: 14px; background: var(--panel); border-top: 1px solid #21262f;
+    }
+    .composer input {
+      flex: 1; padding: 12px 15px; border-radius: 22px; border: 1px solid #2a2f3a;
+      background: #0f1115; color: var(--text); font-size: 16px; /* >=16px stops iOS auto-zoom */
+    }
+    .composer button {
+      border: none; border-radius: 22px; background: var(--accent); color: white;
+      padding: 0 20px; font-weight: 600; cursor: pointer;
+    }
+    .hidden { display: none !important; }
+    .empty { color: var(--muted); text-align: center; margin: auto; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- Name gate -->
+    <div class="gate" id="gate">
+      <h1>Private Chat</h1>
+      <p>Enter your name to start chatting.</p>
+      <label for="name">Your name</label>
+      <input id="name" placeholder="e.g. Alex" autocomplete="off" />
+      <button id="enterBtn">Start chatting</button>
+      <div class="err" id="gateErr"></div>
+    </div>
+
+    <!-- Chat -->
+    <header class="hidden" id="chatHeader">
+      <div>
+        <div class="who" id="whoLabel"></div>
+        <div class="sub">Private Chat</div>
+      </div>
+      <button id="leaveBtn">Change name</button>
+    </header>
+    <div id="messages" class="hidden"></div>
+    <form class="composer hidden" id="composer">
+      <input id="input" placeholder="Type a message…" autocomplete="off" />
+      <button type="submit">Send</button>
+    </form>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    // ====== CONFIG: paste your Supabase project values here ======
+    const SUPABASE_URL = "YOUR_SUPABASE_URL";
+    const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+    // =============================================================
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Register the service worker so the app is installable to the home screen.
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch(() => {});
+      });
+    }
+
+    const $ = (id) => document.getElementById(id);
+    let state = { name: "", channel: null };
+
+    function escapeHtml(s) {
+      return s.replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+    }
+
+    function renderMessage(m) {
+      const box = $("messages");
+      const div = document.createElement("div");
+      const mine = m.sender === state.name;
+      div.className = "msg " + (mine ? "me" : "them");
+      const time = new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      div.innerHTML = `${escapeHtml(m.body)}<div class="meta">${escapeHtml(m.sender)} · ${time}</div>`;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function enterChat() {
+      const name = $("name").value.trim();
+      $("gateErr").textContent = "";
+
+      if (!name) { $("gateErr").textContent = "Please enter your name."; return; }
+      if (SUPABASE_URL.startsWith("YOUR_")) {
+        $("gateErr").textContent = "Supabase isn't configured yet — see necessary.md.";
+        return;
+      }
+
+      state.name = name;
+      localStorage.setItem("chat_name", name); // remember on this device
+
+      // Load conversation history.
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (error) { $("gateErr").textContent = "Error loading messages: " + error.message; return; }
+
+      // Swap views.
+      $("gate").classList.add("hidden");
+      $("chatHeader").classList.remove("hidden");
+      $("messages").classList.remove("hidden");
+      $("composer").classList.remove("hidden");
+      $("whoLabel").textContent = state.name;
+
+      $("messages").innerHTML = "";
+      if (data.length === 0) {
+        const e = document.createElement("div");
+        e.className = "empty";
+        e.textContent = "No messages yet. Say hi 👋";
+        $("messages").appendChild(e);
+      } else {
+        data.forEach(renderMessage);
+      }
+
+      // Subscribe to new messages in real time.
+      state.channel = supabase
+        .channel("chat")
+        .on("postgres_changes",
+          { event: "INSERT", schema: "public", table: "messages" },
+          (payload) => {
+            const empty = document.querySelector(".empty");
+            if (empty) empty.remove();
+            renderMessage(payload.new);
+          })
+        .subscribe();
+
+      $("input").focus();
+    }
+
+    async function sendMessage(e) {
+      e.preventDefault();
+      const body = $("input").value.trim();
+      if (!body) return;
+      $("input").value = "";
+      const { error } = await supabase.from("messages").insert({
+        sender: state.name, body
+      });
+      if (error) alert("Send failed: " + error.message);
+    }
+
+    function changeName() {
+      if (state.channel) supabase.removeChannel(state.channel);
+      state = { name: "", channel: null };
+      $("gate").classList.remove("hidden");
+      $("chatHeader").classList.add("hidden");
+      $("messages").classList.add("hidden");
+      $("composer").classList.add("hidden");
+    }
+
+    // Prefill a remembered name (and auto-enter if we have one).
+    const saved = localStorage.getItem("chat_name");
+    if (saved) $("name").value = saved;
+
+    $("enterBtn").addEventListener("click", enterChat);
+    $("name").addEventListener("keydown", (e) => { if (e.key === "Enter") enterChat(); });
+    $("composer").addEventListener("submit", sendMessage);
+    $("leaveBtn").addEventListener("click", changeName);
+  </script>
+</body>
+</html>
